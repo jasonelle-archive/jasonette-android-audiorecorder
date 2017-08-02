@@ -2,5 +2,6 @@
     <string name="aar_save">Salvar</string>
     <string name="aar_paused">Pausado</string>
     <string name="aar_recording">Gravando</string>
+    <string name="aar_stopped">Stopped</string>
     <string name="aar_playing">Reproduzindo</string>
 </resources>

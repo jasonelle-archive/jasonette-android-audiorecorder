@@ -4,9 +4,11 @@ import android.graphics.Color;
 import android.graphics.PorterDuff;
 import android.graphics.drawable.ColorDrawable;
 import android.media.MediaPlayer;
+import android.media.MediaRecorder;
 import android.os.Bundle;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
+import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
@@ -18,20 +20,16 @@ import android.widget.TextView;
 import com.cleveroad.audiovisualization.DbmHandler;
 import com.cleveroad.audiovisualization.GLAudioVisualizationView;
 
-import java.io.File;
+import java.io.IOException;
 import java.util.Timer;
 import java.util.TimerTask;
 
 import cafe.adriel.androidaudiorecorder.model.AudioChannel;
 import cafe.adriel.androidaudiorecorder.model.AudioSampleRate;
 import cafe.adriel.androidaudiorecorder.model.AudioSource;
-import omrecorder.AudioChunk;
-import omrecorder.OmRecorder;
-import omrecorder.PullTransport;
-import omrecorder.Recorder;
 
 public class AudioRecorderActivity extends AppCompatActivity
-        implements PullTransport.OnAudioChunkPulledListener, MediaPlayer.OnCompletionListener {
+        implements MediaPlayer.OnCompletionListener {
 
     private String filePath;
     private AudioSource source;
@@ -42,7 +40,7 @@ public class AudioRecorderActivity extends AppCompatActivity
     private boolean keepDisplayOn;
 
     private MediaPlayer player;
-    private Recorder recorder;
+    private MediaRecorder recorder;
     private VisualizerHandler visualizerHandler;
 
     private Timer timer;
@@ -196,18 +194,12 @@ public class AudioRecorderActivity extends AppCompatActivity
     }
 
     @Override
-    public void onAudioChunkPulled(AudioChunk audioChunk) {
-        float amplitude = isRecording ? (float) audioChunk.maxAmplitude() : 0f;
-        visualizerHandler.onDataReceived(amplitude);
-    }
-
-    @Override
     public void onCompletion(MediaPlayer mediaPlayer) {
         stopPlaying();
     }
 
     private void selectAudio() {
-        stopRecording();
+        finishRecording();
         setResult(RESULT_OK);
         finish();
     }
@@ -218,7 +210,7 @@ public class AudioRecorderActivity extends AppCompatActivity
             @Override
             public void run() {
                 if (isRecording) {
-                    pauseRecording();
+                    stopRecording();
                 } else {
                     resumeRecording();
                 }
@@ -227,7 +219,7 @@ public class AudioRecorderActivity extends AppCompatActivity
     }
 
     public void togglePlaying(View v){
-        pauseRecording();
+        stopRecording();
         Util.wait(100, new Runnable() {
             @Override
             public void run() {
@@ -242,7 +234,7 @@ public class AudioRecorderActivity extends AppCompatActivity
 
     public void restartRecording(View v){
         if(isRecording) {
-            stopRecording();
+            finishRecording();
         } else if(isPlaying()) {
             stopPlaying();
         } else {
@@ -270,7 +262,7 @@ public class AudioRecorderActivity extends AppCompatActivity
         statusView.setVisibility(View.VISIBLE);
         restartView.setVisibility(View.INVISIBLE);
         playView.setVisibility(View.INVISIBLE);
-        recordView.setImageResource(R.drawable.aar_ic_pause);
+        recordView.setImageResource(R.drawable.aar_ic_stop);
         playView.setImageResource(R.drawable.aar_ic_play);
 
         visualizerHandler = new VisualizerHandler();
@@ -279,25 +271,33 @@ public class AudioRecorderActivity extends AppCompatActivity
         if(recorder == null) {
             timerView.setText("00:00:00");
 
-            recorder = OmRecorder.wav(
-                    new PullTransport.Default(Util.getMic(source, channel, sampleRate), AudioRecorderActivity.this),
-                    new File(filePath));
+            recorder = new MediaRecorder();
+            recorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+            recorder.setAudioChannels(channel.ordinal());
+            recorder.setAudioSamplingRate(sampleRate.getSampleRate());
+            recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
+            recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AMR_NB);
+            recorder.setOutputFile(filePath);
+            try {
+                recorder.prepare();
+            } catch (IOException e) {
+                Log.e("", "", e);
+            }
         }
-        recorder.resumeRecording();
-
+        recorder.start();
         startTimer();
     }
 
-    private void pauseRecording() {
+    private void stopRecording() {
         isRecording = false;
         if(!isFinishing()) {
             saveMenuItem.setVisible(true);
         }
-        statusView.setText(R.string.aar_paused);
+        statusView.setText(R.string.aar_stopped);
         statusView.setVisibility(View.VISIBLE);
         restartView.setVisibility(View.VISIBLE);
         playView.setVisibility(View.VISIBLE);
-        recordView.setImageResource(R.drawable.aar_ic_rec);
+        recordView.setVisibility(View.INVISIBLE);
         playView.setImageResource(R.drawable.aar_ic_play);
 
         visualizerView.release();
@@ -306,13 +306,14 @@ public class AudioRecorderActivity extends AppCompatActivity
         }
 
         if (recorder != null) {
-            recorder.pauseRecording();
+            recorder.stop();
+            recorder = null;
         }
 
         stopTimer();
     }
 
-    private void stopRecording(){
+    private void finishRecording(){
         visualizerView.release();
         if(visualizerHandler != null) {
             visualizerHandler.stop();
@@ -320,7 +321,7 @@ public class AudioRecorderActivity extends AppCompatActivity
 
         recorderSecondsElapsed = 0;
         if (recorder != null) {
-            recorder.stopRecording();
+            recorder.stop();
             recorder = null;
         }
 
@@ -329,7 +330,7 @@ public class AudioRecorderActivity extends AppCompatActivity
 
     private void startPlaying(){
         try {
-            stopRecording();
+            finishRecording();
             player = new MediaPlayer();
             player.setDataSource(filePath);
             player.prepare();
